@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/mercadolibre/golang-restclient/rest"
-	"github.com/pastukhov-aleksandr/bookstore_utils-go/rest_errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mercadolibre/golang-restclient/rest"
+	"github.com/pastukhov-aleksandr/bookstore_utils-go/rest_errors"
 )
 
 const (

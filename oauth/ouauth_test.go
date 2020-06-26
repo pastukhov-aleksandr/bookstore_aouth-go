@@ -50,17 +50,17 @@ func TestGetCallerNoError(t *testing.T) {
 	//TODO: Complete!
 }
 
-func TestGetAccessTokenInvalidRestclientResponse(t *testing.T) {
+func TestGetAccessTokenInvalidRestClientResponse(t *testing.T) {
 	rest.FlushMockups()
 	rest.AddMockups(&rest.Mock{
 		HTTPMethod:   http.MethodGet,
-		URL:          "http://localhost:8080/oauth/access_token/AbC123",
+		URL:          "http://localhost:8080/oauth/access_token/abc123",
 		ReqBody:      ``,
 		RespHTTPCode: -1,
 		RespBody:     `{}`,
 	})
 
-	accessToken, err := getAccessToken("AbC123")
+	accessToken, err := getAccessToken("abc123")
 	assert.Nil(t, accessToken)
 	assert.NotNil(t, err)
 	assert.EqualValues(t, http.StatusInternalServerError, err.Status)
