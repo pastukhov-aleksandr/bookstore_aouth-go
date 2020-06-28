@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/dgrijalva/jwt-go"
+	"github.com/joho/godotenv"
 	"github.com/mercadolibre/golang-restclient/rest"
 	"github.com/pastukhov-aleksandr/bookstore_utils-go/rest_errors"
 )
@@ -32,6 +36,28 @@ type accessToken struct {
 	Id       string `json:"id"`
 	UserId   int64  `json:"user_id"`
 	ClientId int64  `json:"client_id"`
+}
+
+type AccessDetails struct {
+	AccessUuid string
+	UserId     uint64
+}
+
+type SicretCode struct {
+	ACCESS_SECRET  string
+	REFRESH_SECRET string
+}
+
+func GetSicretAccess() (*SicretCode, rest_errors.RestErr) {
+	if err := godotenv.Load(); err != nil {
+		log.Println(".env file not found")
+		return nil, rest_errors.NewBadRequestError("invalid access token")
+	}
+
+	return &SicretCode{
+		ACCESS_SECRET: getEnv(ACCESS_SECRET, ""),
+		REFRESH_SECRET: getEnv(REFRESH_SECRET, "")
+	}, nil
 }
 
 func IsPublic(request *http.Request) bool {
@@ -63,28 +89,31 @@ func GetClientId(request *http.Request) int64 {
 	return clientId
 }
 
-func AuthenticateRequest(request *http.Request) rest_errors.RestErr {
+func AuthenticateRequest(request *http.Request) (int64, rest_errors.RestErr) {
 	if request == nil {
-		return nil
+		return 0, rest_errors.NewUnauthorizedError("unauthorized")
 	}
 
-	cleanRequest(request)
-
-	accessTokenId := strings.TrimSpace(request.URL.Query().Get(paramAccessToken))
-	if accessTokenId == "" {
-		return nil
-	}
-
-	at, err := getAccessToken(accessTokenId)
+	tokenAuth, err := extractTokenMetadata(request)
 	if err != nil {
-		if err.Status() == http.StatusNotFound {
-			return nil
-		}
-		return err
+		return 0, rest_errors.NewUnauthorizedError("unauthorized")
 	}
-	request.Header.Add(headerXClientId, fmt.Sprintf("%v", at.ClientId))
-	request.Header.Add(headerXCallerId, fmt.Sprintf("%v", at.UserId))
-	return nil
+
+	// accessTokenId := strings.TrimSpace(request.URL.Query().Get(paramAccessToken))
+	// if accessTokenId == "" {
+	// 	return nil
+	// }
+
+	// at, err := getAccessToken(accessTokenId)
+	// if err != nil {
+	// 	if err.Status() == http.StatusNotFound {
+	// 		return nil
+	// 	}
+	// 	return err
+	// }
+	// request.Header.Add(headerXClientId, fmt.Sprintf("%v", at.ClientId))
+	// request.Header.Add(headerXCallerId, fmt.Sprintf("%v", at.UserId))
+	// return nil
 }
 
 func cleanRequest(request *http.Request) {
@@ -116,4 +145,63 @@ func getAccessToken(accessTokenId string) (*accessToken, rest_errors.RestErr) {
 			errors.New("error processing json"))
 	}
 	return &at, nil
+}
+
+func extractToken(r *http.Request) string {
+	bearToken := r.Header.Get("Authorization")
+	//normally Authorization the_token_xxx
+	strArr := strings.Split(bearToken, " ")
+	if len(strArr) == 2 {
+		return strArr[1]
+	}
+	return ""
+}
+
+func verifyToken(r *http.Request) (*jwt.Token, error) {
+	tokenString := extractToken(r)
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		//Make sure that the token method conform to "SigningMethodHMAC"
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(os.Getenv("ACCESS_SECRET")), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return token, nil
+}
+
+func tokenValid(r *http.Request) error {
+	token, err := verifyToken(r)
+	if err != nil {
+		return err
+	}
+	if _, ok := token.Claims.(jwt.Claims); !ok && !token.Valid {
+		return err
+	}
+	return nil
+}
+
+func extractTokenMetadata(r *http.Request) (*AccessDetails, error) {
+	token, err := verifyToken(r)
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if ok && token.Valid {
+		accessUuid, ok := claims["access_uuid"].(string)
+		if !ok {
+			return nil, err
+		}
+		userId, err := strconv.ParseUint(fmt.Sprintf("%.f", claims["user_id"]), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		return &AccessDetails{
+			AccessUuid: accessUuid,
+			UserId:     userId,
+		}, nil
+	}
+	return nil, err
 }
